@@ -23,12 +23,14 @@ Requirements
 How to build
 
 # Install dependencies (Debian/Ubuntu example)
-# sudo apt install build-essential meson ninja-build libgtk-4-dev libglib2.0-dev libsqlite3-dev libsystemd-dev
+`sudo apt install build-essential meson ninja-build libgtk-4-dev libglib2.0-dev libsqlite3-dev libsystemd-dev`
+
+
 
 meson setup build
 meson compile -C build
 
-How to run
+# How to run
 
 # For reading journalctl you may need root or appropriate capabilities.
 ./build/log-explorer
