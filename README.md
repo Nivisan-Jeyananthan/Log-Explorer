@@ -1,3 +1,5 @@
+# Intro
+
 Unified Log Explorer (GTK4 + SQLite)
 
 Purpose
@@ -20,21 +22,18 @@ Requirements
 - sqlite3 with FTS5 enabled
 - libgtk-4-dev, libgranite-dev (optional)
 
-How to build
+# How to build
 
-# Install dependencies (Debian/Ubuntu example)
-`sudo apt install build-essential meson ninja-build libgtk-4-dev libglib2.0-dev libsqlite3-dev libsystemd-dev`
-
-
-
-meson setup build
-meson compile -C build
+Install dependencies (Debian/Ubuntu example):   
+```
+$ sudo apt install build-essential meson ninja-build libgtk-4-dev libglib2.0-dev libsqlite3-dev libsystemd-dev
+$ meson setup build  
+$ meson compile -C build
+```
 
 # How to run
+For reading journalctl you may need root or appropriate capabilities.   
+```./build/log-explorer```  
 
-# For reading journalctl you may need root or appropriate capabilities.
-./build/log-explorer
-
-Notes
-
+# Notes
 This is a minimal prototype: production-quality indexing, permission handling, and alerting are left as TODOs.
