@@ -1,0 +1,31 @@
+# Build directory
+/build/
+
+# Compiled source files
+*.o
+
+# Logs
+*.log
+meson-logs/
+
+# Generated build files
+build.ninja
+compile_commands.json
+
+# Meson private files
+meson-private/
+
+# Ignore specific files in private directories
+meson-private/*
+
+# Ignore specific files in the build folder
+build/**/*
+!build/insert-sample.p/  # This keeps the insert-sample.p directory but excludes its contents
+!build/log-explorer-cli.p/  # Keeps the log-explorer-cli.p directory but excludes its contents
+!build/log-explorer.p/  # Keeps the log-explorer.p directory but excludes its contents
+
+# Ignore all .db files
+*.db
+
+# Other potential temporary files
+*.dat
