@@ -169,16 +169,24 @@ static void create_details_window(DB *db, LogItem *li);
 
 static void results_view_pressed_cb(GtkGesture *gesture, int n_press, double x, double y, gpointer user_data) {
     (void)gesture; (void)x; (void)y;
+    g_debug("results_view_pressed: n_press=%d", n_press);
     if (n_press != 2) return;
     GtkWidget *view = GTK_WIDGET(user_data);
     if (!view) return;
     GtkSingleSelection *sel = GTK_SINGLE_SELECTION(g_object_get_data(G_OBJECT(view), "results_sel"));
-    if (!sel) return;
+    if (!sel) {
+        g_debug("results_view_pressed: no single selection stored on view");
+        return;
+    }
     GObject *item = gtk_single_selection_get_selected_item(sel);
-    if (!item) return;
+    if (!item) {
+        g_debug("results_view_pressed: no item selected on double-click");
+        return;
+    }
     LogItem *li = LOG_ITEM(item);
     GtkWidget *win = g_object_get_data(G_OBJECT(view), "main_window");
     DB *db = g_object_get_data(G_OBJECT(win), "db");
+    g_debug("results_view_pressed: opening details for id=%d", li->id);
     create_details_window(db, li);
 }
 
@@ -368,15 +376,9 @@ static void selection_notify_cb(GObject *sel, GParamSpec *pspec, gpointer user_d
     if (!item) return;
     LogItem *li = LOG_ITEM(item);
     GtkWidget *win = GTK_WIDGET(user_data);
-    DB *db = g_object_get_data(G_OBJECT(win), "db");
-    char *full = NULL;
-    if (db_get_message(db, li->id, &full) == 0 && full) {
-        set_message_view(win, full);
-        free(full);
-    } else {
-        set_message_view(win, li->preview);
-    }
-    populate_tags(win, db, li->id);
+    /* Selection no longer updates an inline details pane; details and
+     * tagging are shown in a separate window opened on double-click. */
+    (void)li; (void)win;
 }
 
 void on_add_tag_clicked(GtkWidget *button, gpointer user_data) {
@@ -564,17 +566,18 @@ GtkWidget *create_main_window(DB *db) {
     gtk_window_set_default_size(GTK_WINDOW(win), 800, 600);
     gtk_window_set_resizable(GTK_WINDOW(win), TRUE);
 
-    /* Use a horizontal GtkPaned so the user can drag-resize the results and
-     * preview areas. The paned is the top-level child of the window. */
-    GtkWidget *paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
-    gtk_window_set_child(GTK_WINDOW(win), paned);
+    /* Put the main content inside a scrolled window; this keeps the UI
+     * simple (single top-level window with the results) while details and
+     * tagging live in their own top-level window opened on double-click. */
+    GtkWidget *scroller = gtk_scrolled_window_new();
+    gtk_window_set_child(GTK_WINDOW(win), scroller);
 
     // Left column: search + results
     GtkWidget *left_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
     gtk_widget_set_hexpand(left_vbox, TRUE);
     gtk_widget_set_vexpand(left_vbox, TRUE);
-    /* place the left column (search + results) into the paned start child */
-    gtk_paned_set_start_child(GTK_PANED(paned), left_vbox);
+    /* put the left column into the scroller */
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroller), left_vbox);
 
     GtkWidget *search = gtk_search_entry_new();
     gtk_box_append(GTK_BOX(left_vbox), search);
@@ -622,17 +625,6 @@ GtkWidget *create_main_window(DB *db) {
 
     // initialize offset
     win_set_offset(win, 0);
-        // create a right-side box for the preview; the user can resize this
-        // by dragging the paned handle. Full details open in a separate window.
-        GtkWidget *right_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
-        gtk_widget_set_hexpand(right_vbox, TRUE);
-        gtk_widget_set_vexpand(right_vbox, TRUE);
-        GtkWidget *preview_label = gtk_label_new(NULL);
-        gtk_label_set_wrap(GTK_LABEL(preview_label), TRUE);
-        gtk_widget_set_hexpand(preview_label, TRUE);
-        gtk_box_append(GTK_BOX(right_vbox), preview_label);
-        gtk_paned_set_end_child(GTK_PANED(paned), right_vbox);
-        g_object_set_data(G_OBJECT(win), "preview_label", preview_label);
         /* keep DB pointer on the main window for callbacks */
         g_object_set_data(G_OBJECT(win), "db", db);
 
