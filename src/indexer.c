@@ -10,6 +10,28 @@
 #include <errno.h>
 #include <sys/types.h>
 
+// helper: check whether an executable exists in PATH
+static int program_in_path(const char *prog) {
+    if (!prog) return 0;
+    const char *path = getenv("PATH");
+    if (!path) return 0;
+    char *p = strdup(path);
+    if (!p) return 0;
+    char *save = p;
+    char buf[1024];
+    char *tok = strtok(p, ":");
+    while (tok) {
+        snprintf(buf, sizeof(buf), "%s/%s", tok, prog);
+        if (access(buf, X_OK) == 0) {
+            free(save);
+            return 1;
+        }
+        tok = strtok(NULL, ":");
+    }
+    free(save);
+    return 0;
+}
+
 // Very small JSON helpers (prototype): extract value for a top-level key like "MESSAGE" or "_SYSTEMD_UNIT"
 static char *json_extract_value(const char *json, const char *key) {
     // Find "key"
@@ -186,7 +208,17 @@ static void *varlog_thread(void *arg) {
 int indexer_start(DB *db) {
     if (g_indexer_running) return 0;
     g_indexer_running = 1;
-    if (pthread_create(&g_jth, NULL, journal_thread, db) != 0) {
+    /* Start journal thread only if journalctl is available in PATH. In
+     * sandboxed environments (Flatpak build/run sandbox) journalctl may not
+     * be present; avoid spawning it and instead continue with file-based
+     * indexing. This makes the app behave more gracefully when run in a
+     * restricted environment. */
+    if (program_in_path("journalctl")) {
+        if (pthread_create(&g_jth, NULL, journal_thread, db) != 0) {
+            g_jth = 0;
+        }
+    } else {
+        fprintf(stderr, "indexer: journalctl not found in PATH, skipping journal thread\n");
         g_jth = 0;
     }
     if (pthread_create(&g_fth, NULL, varlog_thread, db) != 0) {
