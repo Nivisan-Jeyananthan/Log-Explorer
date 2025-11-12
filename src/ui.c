@@ -77,6 +77,13 @@ static void win_set_offset(GtkWidget *win, int off) {
     g_object_set_data(G_OBJECT(win), "results_offset", GINT_TO_POINTER(off));
 }
 
+/* forward declaration: create_details_window is defined later but used by
+ * per-item handlers; declare it here to avoid implicit declaration warnings. */
+static void create_details_window(DB *db, LogItem *li);
+/* forward declare the per-item pressed handler so the factory setup can
+ * reference it. */
+static void list_item_pressed_cb(GtkGesture *gesture, int n_press, double x, double y, gpointer user_data);
+
 /* Result list item factory callbacks */
 static void result_factory_setup(GtkListItemFactory *factory, GtkListItem *list_item, gpointer user_data) {
     (void)factory;
@@ -114,6 +121,15 @@ static void result_factory_setup(GtkListItemFactory *factory, GtkListItem *list_
         gtk_widget_set_visible(source_label, !narrow);
         gtk_widget_set_visible(ts_label, !narrow);
     }
+    /* store main window pointer on list_item so item-level handlers can
+     * open details windows reliably (gestures added per-item). */
+    g_object_set_data(G_OBJECT(list_item), "main_window", win);
+    /* Add a click gesture on the item container so double-clicks open
+     * the details window even if the view-level gesture doesn't receive
+     * events. */
+    GtkGesture *item_g = gtk_gesture_click_new();
+    g_signal_connect(item_g, "pressed", G_CALLBACK(list_item_pressed_cb), list_item);
+    gtk_widget_add_controller(h, GTK_EVENT_CONTROLLER(item_g));
     gtk_list_item_set_child(list_item, h);
 }
 
@@ -141,6 +157,22 @@ static void result_factory_bind(GtkListItemFactory *factory, GtkListItem *list_i
         gtk_widget_set_visible(source_label, !narrow);
         gtk_widget_set_visible(ts_label, !narrow);
     }
+}
+
+/* Click handler attached to each list-item container to open the details
+ * window on double-click. */
+static void list_item_pressed_cb(GtkGesture *gesture, int n_press, double x, double y, gpointer user_data) {
+    (void)gesture; (void)x; (void)y;
+    if (n_press != 2) return;
+    GtkListItem *list_item = GTK_LIST_ITEM(user_data);
+    if (!list_item) return;
+    GObject *item = gtk_list_item_get_item(list_item);
+    if (!item) return;
+    LogItem *li = LOG_ITEM(item);
+    GtkWidget *win = g_object_get_data(G_OBJECT(list_item), "main_window");
+    if (!win) return;
+    DB *db = g_object_get_data(G_OBJECT(win), "db");
+    create_details_window(db, li);
 }
 
 static void window_size_allocate_cb(GtkWidget *win, GtkAllocation *alloc, gpointer user_data) {
@@ -619,10 +651,8 @@ GtkWidget *create_main_window(DB *db) {
     g_object_set_data(G_OBJECT(win), "narrow_mode", GINT_TO_POINTER(0));
     g_signal_connect(win, "size-allocate", G_CALLBACK(window_size_allocate_cb), NULL);
 
-    /* Add a double-click gesture to open details in a separate window. */
-    GtkGesture *g = gtk_gesture_click_new();
-    g_signal_connect(g, "pressed", G_CALLBACK(results_view_pressed_cb), view);
-    gtk_widget_add_controller(view, GTK_EVENT_CONTROLLER(g));
+    /* The item-level gesture handlers are attached in the factory setup so
+     * double-clicking a list-item reliably opens the details window. */
 
     // initialize offset
     win_set_offset(win, 0);
