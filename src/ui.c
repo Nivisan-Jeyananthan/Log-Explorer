@@ -194,18 +194,29 @@ static void list_item_pressed_cb(GtkGesture *gesture, int n_press, double x, dou
 static void window_size_allocate_cb(GtkWidget *win, GtkAllocation *alloc, gpointer user_data) {
     (void)user_data;
     int width = alloc->width;
+    int height = alloc->height;
     gboolean narrow = width < 700;
     gboolean prev = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(win), "narrow_mode"));
-    if (narrow == prev) return;
-    g_object_set_data(G_OBJECT(win), "narrow_mode", GINT_TO_POINTER(narrow));
-    /* Toggle visibility for registered labels */
-    GList *slist = (GList*)g_object_get_data(G_OBJECT(win), "col_source_labels");
-    for (GList *l = slist; l; l = l->next) {
-        gtk_widget_set_visible(GTK_WIDGET(l->data), !narrow);
+    if (narrow != prev) {
+        g_object_set_data(G_OBJECT(win), "narrow_mode", GINT_TO_POINTER(narrow));
+        /* Toggle visibility for registered labels */
+        GList *slist = (GList*)g_object_get_data(G_OBJECT(win), "col_source_labels");
+        for (GList *l = slist; l; l = l->next) {
+            gtk_widget_set_visible(GTK_WIDGET(l->data), !narrow);
+        }
+        GList *tlist = (GList*)g_object_get_data(G_OBJECT(win), "col_ts_labels");
+        for (GList *l = tlist; l; l = l->next) {
+            gtk_widget_set_visible(GTK_WIDGET(l->data), !narrow);
+        }
     }
-    GList *tlist = (GList*)g_object_get_data(G_OBJECT(win), "col_ts_labels");
-    for (GList *l = tlist; l; l = l->next) {
-        gtk_widget_set_visible(GTK_WIDGET(l->data), !narrow);
+
+    /* Adjust bottom bar height to ~10% of window height, with sensible min/max */
+    GtkWidget *bottom_bar = g_object_get_data(G_OBJECT(win), "bottom_bar");
+    if (bottom_bar) {
+        int target = height / 10; /* 10% */
+        if (target < 40) target = 40; /* minimum bar height */
+        if (target > 200) target = 200; /* sensible cap */
+        gtk_widget_set_size_request(bottom_bar, -1, target);
     }
 }
 
@@ -598,12 +609,12 @@ GtkWidget *create_main_window(DB *db) {
     (void)0;
 
     /* The main window contains a vertical box with the search and results.
-     * Do not wrap the GtkListView in an external GtkScrolledWindow —
-     * GtkListView implements its own scrolling and nesting a scrolled
-     * container around it can cause virtualization/layout issues leading
-     * to blank rows when scrolling. */
+     * We keep the results area in an expanding center box and place a
+     * separate bottom bar for the persistent "Load more" control. This
+     * keeps the button visible at the bottom while the list view can
+     * scroll/expand above it. */
 
-    // Left column: search + results
+    // Left column: main vertical container
     GtkWidget *left_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
     gtk_widget_set_hexpand(left_vbox, TRUE);
     gtk_widget_set_vexpand(left_vbox, TRUE);
@@ -617,8 +628,14 @@ GtkWidget *create_main_window(DB *db) {
      * internal scrolling is used. */
     gtk_window_set_child(GTK_WINDOW(win), left_vbox);
 
+    /* Center area: search + results (expands to fill available space) */
+    GtkWidget *center_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+    gtk_widget_set_hexpand(center_box, TRUE);
+    gtk_widget_set_vexpand(center_box, TRUE);
+    gtk_box_append(GTK_BOX(left_vbox), center_box);
+
     GtkWidget *search = gtk_search_entry_new();
-    gtk_box_append(GTK_BOX(left_vbox), search);
+    gtk_box_append(GTK_BOX(center_box), search);
     gtk_widget_set_valign(search, GTK_ALIGN_START);
 
     /* Results model/view using modern GtkListView + GListStore */
@@ -630,6 +647,13 @@ GtkWidget *create_main_window(DB *db) {
     GtkSingleSelection *results_sel = GTK_SINGLE_SELECTION(gtk_single_selection_new((GListModel*)results_store));
     GtkWidget *view = gtk_list_view_new((GtkSelectionModel*)results_sel, GTK_LIST_ITEM_FACTORY(res_factory));
     gtk_widget_set_vexpand(view, TRUE);
+    /* Ensure the results view has a reasonable minimum height so the
+     * main window can be resized vertically. Without an explicit
+     * minimum the list view's natural size may be the sum of all rows
+     * (if virtualization is not active), which prevents shrinking. A
+     * modest minimum of 200px lets the window manager offer vertical
+     * resize handles while keeping the UI usable. */
+    gtk_widget_set_size_request(view, -1, 200);
     gtk_widget_set_valign(view, GTK_ALIGN_FILL);
     /* store references */
     g_object_set_data(G_OBJECT(view), "results_store", results_store);
@@ -637,13 +661,30 @@ GtkWidget *create_main_window(DB *db) {
     /* also store results view on search entry so callbacks can find it */
 
     gtk_widget_set_hexpand(view, TRUE);
-    gtk_box_append(GTK_BOX(left_vbox), view);
+    gtk_box_append(GTK_BOX(center_box), view);
 
-    // Load More button for pagination
+    // Bottom bar: persistent load-more control
+    GtkWidget *bottom_bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_widget_set_hexpand(bottom_bar, TRUE);
+    gtk_widget_set_vexpand(bottom_bar, FALSE);
+    gtk_widget_set_halign(bottom_bar, GTK_ALIGN_FILL);
+    gtk_widget_set_valign(bottom_bar, GTK_ALIGN_END);
+    gtk_style_context_add_class(gtk_widget_get_style_context(bottom_bar), "bottom-bar");
+    gtk_box_append(GTK_BOX(left_vbox), bottom_bar);
+
+    // Load More button for pagination (placed in bottom bar)
     GtkWidget *load_more = gtk_button_new_with_label("Load more");
     gtk_widget_set_sensitive(load_more, FALSE);
-    gtk_widget_set_valign(load_more, GTK_ALIGN_START);
-    gtk_box_append(GTK_BOX(left_vbox), load_more);
+    gtk_widget_set_hexpand(load_more, FALSE);
+    gtk_widget_set_halign(load_more, GTK_ALIGN_CENTER);
+    gtk_widget_set_margin_top(load_more, 8);
+    gtk_widget_set_margin_bottom(load_more, 8);
+    gtk_widget_set_margin_start(load_more, 12);
+    gtk_widget_set_margin_end(load_more, 12);
+    gtk_box_append(GTK_BOX(bottom_bar), load_more);
+    /* keep a reference to the bottom_bar on the window so the size-allocate
+     * handler can adjust its height to be ~10% of the window height. */
+    g_object_set_data(G_OBJECT(win), "bottom_bar", bottom_bar);
 
      /* store results view on the search entry so the callback can access it without
          needing to query the toplevel (avoids potential ABI/header mismatches) */
@@ -652,6 +693,8 @@ GtkWidget *create_main_window(DB *db) {
     // link search entry back to main window
     g_object_set_data(G_OBJECT(search), "main_window", win);
     g_object_set_data(G_OBJECT(win), "load_more_btn", load_more);
+    /* Also expose bottom_bar so size-allocate can compute its target height */
+    g_object_set_data(G_OBJECT(win), "bottom_bar", bottom_bar);
 
     /* Connect selection notify so selecting an item updates details */
     g_signal_connect(results_sel, "notify::selected", G_CALLBACK(selection_notify_cb), win);
