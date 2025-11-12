@@ -1,9 +1,11 @@
 #pragma once
 
 #include <sqlite3.h>
+#include <pthread.h>
 
 typedef struct {
     sqlite3 *db;
+    pthread_mutex_t lock;
 } DB;
 
 int db_open(DB *d, const char *path);
