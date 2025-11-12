@@ -67,7 +67,6 @@ static void tag_item_dispose(GObject *object) {
 static void tag_item_init(TagItem *t) { t->name = NULL; }
 static void tag_item_class_init(TagItemClass *k) { GObjectClass *oc = G_OBJECT_CLASS(k); oc->dispose = tag_item_dispose; }
 static TagItem *tag_item_new(const char *name) { TagItem *t = g_object_new(tag_item_get_type(), NULL); t->name = name ? g_strdup(name) : g_strdup(""); return t; }
-
 // helper to set/get offset stored on window
 static int win_get_offset(GtkWidget *win) {
     gpointer p = g_object_get_data(G_OBJECT(win), "results_offset");
@@ -162,6 +161,27 @@ static void window_size_allocate_cb(GtkWidget *win, GtkAllocation *alloc, gpoint
     }
 }
 
+/* forward declaration: create_details_window is defined later but used by the
+ * results view pressed handler (double-click). Declare it here to avoid an
+ * implicit declaration warning/error. */
+static void create_details_window(DB *db, LogItem *li);
+
+
+static void results_view_pressed_cb(GtkGesture *gesture, int n_press, double x, double y, gpointer user_data) {
+    (void)gesture; (void)x; (void)y;
+    if (n_press != 2) return;
+    GtkWidget *view = GTK_WIDGET(user_data);
+    if (!view) return;
+    GtkSingleSelection *sel = GTK_SINGLE_SELECTION(g_object_get_data(G_OBJECT(view), "results_sel"));
+    if (!sel) return;
+    GObject *item = gtk_single_selection_get_selected_item(sel);
+    if (!item) return;
+    LogItem *li = LOG_ITEM(item);
+    GtkWidget *win = g_object_get_data(G_OBJECT(view), "main_window");
+    DB *db = g_object_get_data(G_OBJECT(win), "db");
+    create_details_window(db, li);
+}
+
 /* Tag list factory callbacks */
 static void tag_factory_setup(GtkListItemFactory *factory, GtkListItem *list_item, gpointer user_data) {
     (void)factory; (void)user_data;
@@ -236,12 +256,12 @@ static void on_search_activate(GtkWidget *entry, gpointer user_data) {
     // if we filled PAGE_SIZE rows, enable Load More button
     GtkWidget *load_more = g_object_get_data(G_OBJECT(win), "load_more_btn");
     if (load_more) {
-        int rows = gtk_tree_model_iter_n_children(GTK_TREE_MODEL(store), NULL);
-        if (rows >= PAGE_SIZE + offset) {
-            gtk_widget_set_sensitive(load_more, TRUE);
-        } else {
-            gtk_widget_set_sensitive(load_more, FALSE);
-        }
+        /* Use GListModel API to get the number of items in the GListStore.
+         * Previously the code used a GtkTreeModel API which returns 0 for
+         * GListStore and caused the Load More button to remain disabled. */
+        int rows = g_list_model_get_n_items((GListModel*)store);
+        if (rows >= PAGE_SIZE + offset) gtk_widget_set_sensitive(load_more, TRUE);
+        else gtk_widget_set_sensitive(load_more, FALSE);
     }
 }
 
@@ -400,6 +420,127 @@ void on_remove_tag_clicked(GtkWidget *button, gpointer user_data) {
     populate_tags(win, db, id);
 }
 
+/* New detail-window tagging helpers: operate on a details window instance which
+ * stores 'db' and 'log_id' in its object data. */
+static void detail_populate_tags(GtkWidget *detail_win) {
+    DB *db = g_object_get_data(G_OBJECT(detail_win), "db");
+    int log_id = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(detail_win), "log_id"));
+    GtkWidget *tag_view = g_object_get_data(G_OBJECT(detail_win), "tag_view");
+    if (!db || !tag_view) return;
+    char **tags = db_list_tags(db, log_id);
+    if (!tags) return;
+    GListStore *tag_store = g_list_store_new(tag_item_get_type());
+    for (size_t i = 0; tags[i]; ++i) {
+        TagItem *ti = tag_item_new(tags[i]);
+        g_list_store_append(tag_store, G_OBJECT(ti));
+        g_object_unref(ti);
+    }
+    db_free_string_array(tags);
+    GtkSingleSelection *tsel = GTK_SINGLE_SELECTION(gtk_single_selection_new((GListModel*)tag_store));
+    gtk_list_view_set_model(GTK_LIST_VIEW(tag_view), (GtkSelectionModel*)tsel);
+    g_object_unref(tag_store);
+}
+
+static void on_add_tag_detail_clicked(GtkWidget *button, gpointer user_data) {
+    (void)button;
+    GtkWidget *win = (GtkWidget*)user_data;
+    GtkWidget *entry = g_object_get_data(G_OBJECT(win), "tag_entry");
+    const char *tag = gtk_editable_get_text(GTK_EDITABLE(entry));
+    if (!tag || !*tag) return;
+    DB *db = g_object_get_data(G_OBJECT(win), "db");
+    int log_id = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(win), "log_id"));
+    if (!db) return;
+    db_add_tag(db, log_id, tag);
+    detail_populate_tags(win);
+    gtk_editable_set_text(GTK_EDITABLE(entry), "");
+}
+
+static void on_remove_tag_detail_clicked(GtkWidget *button, gpointer user_data) {
+    (void)button;
+    GtkWidget *win = (GtkWidget*)user_data;
+    GtkWidget *tag_view = g_object_get_data(G_OBJECT(win), "tag_view");
+    if (!tag_view) return;
+    GtkSelectionModel *sel_model = gtk_list_view_get_model(GTK_LIST_VIEW(tag_view));
+    if (!sel_model || !GTK_IS_SINGLE_SELECTION(sel_model)) return;
+    GtkSingleSelection *single_sel = GTK_SINGLE_SELECTION(sel_model);
+    GObject *titem = gtk_single_selection_get_selected_item(single_sel);
+    if (!titem) return;
+    TagItem *ti = TAG_ITEM(titem);
+    const char *tag = ti->name;
+    if (!tag) return;
+    DB *db = g_object_get_data(G_OBJECT(win), "db");
+    int log_id = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(win), "log_id"));
+    if (!db) return;
+    db_remove_tag(db, log_id, tag);
+    detail_populate_tags(win);
+}
+
+/* Create a new top-level window that shows full message and tag controls */
+static void create_details_window(DB *db, LogItem *li) {
+    if (!db || !li) return;
+    GtkWidget *dwin = gtk_window_new();
+    char title[128];
+    snprintf(title, sizeof(title), "Log #%d Details", li->id);
+    gtk_window_set_title(GTK_WINDOW(dwin), title);
+    gtk_window_set_default_size(GTK_WINDOW(dwin), 600, 400);
+
+    GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+    gtk_window_set_child(GTK_WINDOW(dwin), vbox);
+
+    GtkWidget *msg_view = gtk_text_view_new();
+    gtk_text_view_set_editable(GTK_TEXT_VIEW(msg_view), FALSE);
+    GtkWidget *msg_scroller = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(msg_scroller), msg_view);
+    gtk_widget_set_hexpand(msg_scroller, TRUE);
+    gtk_widget_set_vexpand(msg_scroller, TRUE);
+    gtk_box_append(GTK_BOX(vbox), msg_scroller);
+
+    /* Tag controls */
+    GtkWidget *tag_hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_box_append(GTK_BOX(vbox), tag_hbox);
+    GtkWidget *tag_entry = gtk_entry_new();
+    gtk_box_append(GTK_BOX(tag_hbox), tag_entry);
+    GtkWidget *add_btn = gtk_button_new_with_label("Add Tag");
+    gtk_box_append(GTK_BOX(tag_hbox), add_btn);
+    GtkWidget *remove_btn = gtk_button_new_with_label("Remove Tag");
+    gtk_box_append(GTK_BOX(tag_hbox), remove_btn);
+
+    /* Tag list */
+    GListStore *tag_store = g_list_store_new(tag_item_get_type());
+    GtkListItemFactory *tag_factory = gtk_signal_list_item_factory_new();
+    g_signal_connect(tag_factory, "setup", G_CALLBACK(tag_factory_setup), NULL);
+    g_signal_connect(tag_factory, "bind", G_CALLBACK(tag_factory_bind), NULL);
+    GtkSingleSelection *tag_sel = GTK_SINGLE_SELECTION(gtk_single_selection_new((GListModel*)tag_store));
+    GtkWidget *tag_view = gtk_list_view_new((GtkSelectionModel*)tag_sel, GTK_LIST_ITEM_FACTORY(tag_factory));
+    gtk_widget_set_size_request(tag_view, 150, 100);
+    GtkWidget *tag_scroller = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(tag_scroller), tag_view);
+    gtk_box_append(GTK_BOX(vbox), tag_scroller);
+
+    /* store references on detail window */
+    g_object_set_data(G_OBJECT(dwin), "db", db);
+    g_object_set_data(G_OBJECT(dwin), "log_id", GINT_TO_POINTER(li->id));
+    g_object_set_data(G_OBJECT(dwin), "tag_entry", tag_entry);
+    g_object_set_data(G_OBJECT(dwin), "tag_view", tag_view);
+
+    g_signal_connect(add_btn, "clicked", G_CALLBACK(on_add_tag_detail_clicked), dwin);
+    g_signal_connect(remove_btn, "clicked", G_CALLBACK(on_remove_tag_detail_clicked), dwin);
+
+    /* populate message and tags */
+    char *full = NULL;
+    if (db_get_message(db, li->id, &full) == 0 && full) {
+        GtkTextBuffer *buf = gtk_text_view_get_buffer(GTK_TEXT_VIEW(msg_view));
+        gtk_text_buffer_set_text(buf, full, -1);
+        free(full);
+    } else {
+        GtkTextBuffer *buf = gtk_text_view_get_buffer(GTK_TEXT_VIEW(msg_view));
+        gtk_text_buffer_set_text(buf, li->preview ? li->preview : "", -1);
+    }
+
+    detail_populate_tags(dwin);
+    gtk_widget_show(dwin);
+}
+
 GtkWidget *create_main_window(DB *db) {
     GtkWidget *win = gtk_window_new();
     gtk_window_set_title(GTK_WINDOW(win), "Log Explorer");
@@ -430,8 +571,8 @@ GtkWidget *create_main_window(DB *db) {
     /* Results model/view using modern GtkListView + GListStore */
     GListStore *results_store = g_list_store_new(LOG_ITEM_TYPE);
     GtkListItemFactory *res_factory = gtk_signal_list_item_factory_new();
-    g_signal_connect(res_factory, "setup", G_CALLBACK(result_factory_setup), NULL);
-    g_signal_connect(res_factory, "bind", G_CALLBACK(result_factory_bind), NULL);
+    g_signal_connect(res_factory, "setup", G_CALLBACK(result_factory_setup), win);
+    g_signal_connect(res_factory, "bind", G_CALLBACK(result_factory_bind), win);
     /* Wrap the store in a GtkSingleSelection to get selection support */
     GtkSingleSelection *results_sel = GTK_SINGLE_SELECTION(gtk_single_selection_new((GListModel*)results_store));
     GtkWidget *view = gtk_list_view_new((GtkSelectionModel*)results_sel, GTK_LIST_ITEM_FACTORY(res_factory));
@@ -459,6 +600,14 @@ GtkWidget *create_main_window(DB *db) {
 
     /* Connect selection notify so selecting an item updates details */
     g_signal_connect(results_sel, "notify::selected", G_CALLBACK(selection_notify_cb), win);
+    /* Initialize narrow mode flag and size-allocate handler */
+    g_object_set_data(G_OBJECT(win), "narrow_mode", GINT_TO_POINTER(0));
+    g_signal_connect(win, "size-allocate", G_CALLBACK(window_size_allocate_cb), NULL);
+
+    /* Add a double-click gesture to open details in a separate window. */
+    GtkGesture *g = gtk_gesture_click_new();
+    g_signal_connect(g, "pressed", G_CALLBACK(results_view_pressed_cb), view);
+    gtk_widget_add_controller(view, GTK_EVENT_CONTROLLER(g));
 
     // initialize offset
     win_set_offset(win, 0);
