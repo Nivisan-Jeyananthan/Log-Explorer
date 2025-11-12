@@ -592,12 +592,10 @@ GtkWidget *create_main_window(DB *db) {
     gtk_window_set_default_size(GTK_WINDOW(win), 800, 600);
     gtk_window_set_resizable(GTK_WINDOW(win), TRUE);
 
-    /* Use a conservative, portable minimum height: 300px. This is smaller
-     * than half of typical screen heights (e.g., 1080p/2 = 540) and avoids
-     * depending on monitor APIs that may not be available in older GDK
-     * builds inside runtime sandboxes. We store it on the window to apply
-     * the size request on the main child later. */
-    g_object_set_data(G_OBJECT(win), "min_height_hint", GINT_TO_POINTER(300));
+    /* Ensure the window is resizable. We avoid forcing a size request on
+     * the main child so the window manager can provide normal resize
+     * handles for vertical and horizontal resizing. */
+    (void)0;
 
     /* The main window contains a vertical box with the search and results.
      * Do not wrap the GtkListView in an external GtkScrolledWindow —
@@ -612,15 +610,9 @@ GtkWidget *create_main_window(DB *db) {
     /* Ensure the vbox fills available vertical space and can shrink/grow */
     gtk_widget_set_valign(left_vbox, GTK_ALIGN_FILL);
     gtk_widget_set_halign(left_vbox, GTK_ALIGN_FILL);
-    /* If we computed a minimum height hint earlier, apply it as a size
-     * request on the left_vbox so the window can be shrunk down to the
-     * requested minimum. This encourages window managers to allow a
-     * smaller toplevel height than the default. */
-    gpointer mh = g_object_get_data(G_OBJECT(win), "min_height_hint");
-    if (mh) {
-        int min_h = GPOINTER_TO_INT(mh);
-        if (min_h > 0) gtk_widget_set_size_request(left_vbox, -1, min_h);
-    }
+    /* Do not set an explicit size request on the left_vbox; letting the
+     * child widgets determine minimum sizes ensures the window manager
+     * can offer vertical resize handles. */
     /* set the left column as the window child directly so the list view's
      * internal scrolling is used. */
     gtk_window_set_child(GTK_WINDOW(win), left_vbox);
