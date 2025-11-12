@@ -1,4 +1,7 @@
 #include <gtk/gtk.h>
+#ifndef G_APPLICATION_DEFAULT_FLAGS
+#define G_APPLICATION_DEFAULT_FLAGS G_APPLICATION_FLAGS_NONE
+#endif
 #include <stdlib.h>
 #include "db.h"
 #include "ui.h"
