@@ -12,7 +12,10 @@ static void app_activate(GApplication *app, gpointer user_data) {
 }
 
 int main(int argc, char **argv) {
-    gtk_init();
+    /* Let GtkApplication initialize GTK when started via g_application_run().
+     * Avoid calling gtk_init() here to prevent double-initialization and to
+     * ensure the application id used by GApplication matches the Flatpak
+     * app-id below. */
 
     DB db;
     if (db_open(&db, "./log.db") != 0) {
@@ -24,7 +27,9 @@ int main(int argc, char **argv) {
 
      /* G_APPLICATION_FLAGS_NONE is deprecated in newer glib; use the replacement
          macro to avoid deprecation warnings. */
-     GtkApplication *app = gtk_application_new("org.example.logexplorer", G_APPLICATION_DEFAULT_FLAGS);
+    /* Use the same application id as the Flatpak app-id so GApplication
+     * registration and desktop integration behave correctly. */
+    GtkApplication *app = gtk_application_new("org.logexplorer.LogExplorer", G_APPLICATION_DEFAULT_FLAGS);
     g_signal_connect(app, "activate", G_CALLBACK(app_activate), &db);
 
     int status = g_application_run(G_APPLICATION(app), argc, argv);
