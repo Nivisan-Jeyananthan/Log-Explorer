@@ -80,7 +80,10 @@ static void win_set_offset(GtkWidget *win, int off) {
 
 /* Result list item factory callbacks */
 static void result_factory_setup(GtkListItemFactory *factory, GtkListItem *list_item, gpointer user_data) {
-    (void)factory; (void)user_data;
+    (void)factory;
+    /* user_data is the main window so we can register label widgets for
+     * responsive visibility toggling. */
+    GtkWidget *win = (GtkWidget*)user_data;
     GtkWidget *h = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     GtkWidget *id_label = gtk_label_new(NULL);
     GtkWidget *source_label = gtk_label_new(NULL);
@@ -98,11 +101,25 @@ static void result_factory_setup(GtkListItemFactory *factory, GtkListItem *list_
     g_object_set_data(G_OBJECT(list_item), "unit_label", unit_label);
     g_object_set_data(G_OBJECT(list_item), "ts_label", ts_label);
     g_object_set_data(G_OBJECT(list_item), "preview_label", preview_label);
+    /* Register these labels on the window so we can toggle visibility when
+     * the window becomes narrow. We store GList* under keys on the window. */
+    if (win) {
+        GList *slist = (GList*)g_object_get_data(G_OBJECT(win), "col_source_labels");
+        slist = g_list_prepend(slist, source_label);
+        g_object_set_data(G_OBJECT(win), "col_source_labels", slist);
+        GList *tlist = (GList*)g_object_get_data(G_OBJECT(win), "col_ts_labels");
+        tlist = g_list_prepend(tlist, ts_label);
+        g_object_set_data(G_OBJECT(win), "col_ts_labels", tlist);
+        /* set initial visibility according to current narrow mode */
+        gboolean narrow = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(win), "narrow_mode"));
+        gtk_widget_set_visible(source_label, !narrow);
+        gtk_widget_set_visible(ts_label, !narrow);
+    }
     gtk_list_item_set_child(list_item, h);
 }
 
 static void result_factory_bind(GtkListItemFactory *factory, GtkListItem *list_item, gpointer user_data) {
-    (void)factory; (void)user_data;
+    (void)factory;
     GObject *item = gtk_list_item_get_item(list_item);
     if (!item) return;
     LogItem *li = LOG_ITEM(item);
@@ -118,6 +135,31 @@ static void result_factory_bind(GtkListItemFactory *factory, GtkListItem *list_i
     gtk_label_set_text(GTK_LABEL(unit_label), li->unit ? li->unit : "");
     gtk_label_set_text(GTK_LABEL(ts_label), li->ts ? li->ts : "");
     gtk_label_set_text(GTK_LABEL(preview_label), li->preview ? li->preview : "");
+    /* Ensure newly bound items follow the current responsive visibility state */
+    if (user_data) {
+        GtkWidget *win = (GtkWidget*)user_data;
+        gboolean narrow = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(win), "narrow_mode"));
+        gtk_widget_set_visible(source_label, !narrow);
+        gtk_widget_set_visible(ts_label, !narrow);
+    }
+}
+
+static void window_size_allocate_cb(GtkWidget *win, GtkAllocation *alloc, gpointer user_data) {
+    (void)user_data;
+    int width = alloc->width;
+    gboolean narrow = width < 700;
+    gboolean prev = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(win), "narrow_mode"));
+    if (narrow == prev) return;
+    g_object_set_data(G_OBJECT(win), "narrow_mode", GINT_TO_POINTER(narrow));
+    /* Toggle visibility for registered labels */
+    GList *slist = (GList*)g_object_get_data(G_OBJECT(win), "col_source_labels");
+    for (GList *l = slist; l; l = l->next) {
+        gtk_widget_set_visible(GTK_WIDGET(l->data), !narrow);
+    }
+    GList *tlist = (GList*)g_object_get_data(G_OBJECT(win), "col_ts_labels");
+    for (GList *l = tlist; l; l = l->next) {
+        gtk_widget_set_visible(GTK_WIDGET(l->data), !narrow);
+    }
 }
 
 /* Tag list factory callbacks */
