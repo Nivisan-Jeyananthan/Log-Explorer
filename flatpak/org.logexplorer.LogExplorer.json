@@ -10,7 +10,10 @@
     "--socket=x11",
     "--socket=wayland",
     "--talk-name=org.freedesktop.Notifications",
-    "--device=dri"
+    "--device=dri",
+    "--filesystem=/var/log:ro",
+    "--filesystem=/run/log/journal:ro",
+    "--socket=system-bus"
   ],
   "modules": [
     {
@@ -22,7 +25,9 @@
   "meson compile -C _flatpak_build",
   "meson install -C _flatpak_build --destdir=$FLATPAK_DEST || true",
           "mkdir -p $FLATPAK_DEST/share/applications",
-          "cp ../flatpak/org.logexplorer.LogExplorer.desktop $FLATPAK_DEST/share/applications/ || true"
+          "cp ../flatpak/org.logexplorer.LogExplorer.desktop $FLATPAK_DEST/share/applications/ || true",
+          "mkdir -p $FLATPAK_DEST/share/icons/hicolor/scalable/apps",
+          "cp ../flatpak/icons/log-explorer.svg $FLATPAK_DEST/share/icons/hicolor/scalable/apps/org.logexplorer.LogExplorer.svg || true"
         ],
       "sources": [
         { "type": "dir", "path": ".." }
