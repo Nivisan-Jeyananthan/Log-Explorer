@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Log Explorer
+Exec=log-explorer
+Terminal=false
+Categories=Utility;Development;
+Icon=log-explorer

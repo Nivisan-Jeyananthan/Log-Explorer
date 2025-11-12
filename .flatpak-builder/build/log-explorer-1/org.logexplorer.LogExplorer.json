@@ -1,0 +1,25 @@
+{
+  "app-id": "org.logexplorer.LogExplorer",
+  "runtime": "org.gnome.Platform",
+  "runtime-version": "44",
+  "sdk": "org.gnome.Sdk",
+  "command": "log-explorer",
+  "finish-args": [
+    "--share=network",
+    "--share=ipc",
+    "--socket=x11",
+    "--socket=wayland",
+    "--talk-name=org.freedesktop.Notifications",
+    "--device=dri"
+  ],
+  "modules": [
+    {
+      "name": "log-explorer",
+      "buildsystem": "meson",
+      "config-opts": ["-Dbuildtype=release"],
+      "sources": [
+        { "type": "dir", "path": "." }
+      ]
+    }
+  ]
+}
