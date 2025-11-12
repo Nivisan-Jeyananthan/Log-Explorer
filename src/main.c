@@ -33,6 +33,10 @@ int main(int argc, char **argv) {
     /* Use the same application id as the Flatpak app-id so GApplication
      * registration and desktop integration behave correctly. */
     GtkApplication *app = gtk_application_new("org.logexplorer.LogExplorer", G_APPLICATION_DEFAULT_FLAGS);
+    /* Load application CSS to improve spacing and visuals. setup_css is defined in src/ui.c
+     * and is a small, local CSS provider that doesn't depend on external files. Calling it
+     * early ensures styles are applied before widgets are realized. */
+    setup_css();
     g_signal_connect(app, "activate", G_CALLBACK(app_activate), &db);
 
     int status = g_application_run(G_APPLICATION(app), argc, argv);

@@ -2,6 +2,22 @@
 #include <stdio.h>
 #include <glib-object.h>
 
+/* Small, embedded CSS to improve visuals */
+void setup_css(void) {
+    const char *css =
+        ".result-row { padding: 8px; border-bottom: 1px solid rgba(0,0,0,0.06); }\n"
+        ".result-row:hover { background-color: rgba(0,0,0,0.03); }\n"
+        ".result-id { font-weight: bold; margin-right: 8px; }\n"
+        ".preview { font-family: monospace; color: rgba(0,0,0,0.7); }\n"
+        ".search-entry { margin: 6px; }\n"
+        ".load-more { margin-top: 8px; }\n";
+    GtkCssProvider *p = gtk_css_provider_new();
+    gtk_css_provider_load_from_data(p, css, -1);
+    GdkDisplay *d = gdk_display_get_default();
+    if (d) gtk_style_context_add_provider_for_display(d, GTK_STYLE_PROVIDER(p), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    g_object_unref(p);
+}
+
 static const int PAGE_SIZE = 100;
 
 /* Small GObject to represent a log item in the list model. */
@@ -608,12 +624,16 @@ GtkWidget *create_main_window(DB *db) {
     GtkWidget *left_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
     gtk_widget_set_hexpand(left_vbox, TRUE);
     gtk_widget_set_vexpand(left_vbox, TRUE);
+    /* Ensure the vbox fills available vertical space and can shrink/grow */
+    gtk_widget_set_valign(left_vbox, GTK_ALIGN_FILL);
+    gtk_widget_set_halign(left_vbox, GTK_ALIGN_FILL);
     /* set the left column as the window child directly so the list view's
      * internal scrolling is used. */
     gtk_window_set_child(GTK_WINDOW(win), left_vbox);
 
     GtkWidget *search = gtk_search_entry_new();
     gtk_box_append(GTK_BOX(left_vbox), search);
+    gtk_widget_set_valign(search, GTK_ALIGN_START);
 
     /* Results model/view using modern GtkListView + GListStore */
     GListStore *results_store = g_list_store_new(LOG_ITEM_TYPE);
@@ -624,6 +644,7 @@ GtkWidget *create_main_window(DB *db) {
     GtkSingleSelection *results_sel = GTK_SINGLE_SELECTION(gtk_single_selection_new((GListModel*)results_store));
     GtkWidget *view = gtk_list_view_new((GtkSelectionModel*)results_sel, GTK_LIST_ITEM_FACTORY(res_factory));
     gtk_widget_set_vexpand(view, TRUE);
+    gtk_widget_set_valign(view, GTK_ALIGN_FILL);
     /* store references */
     g_object_set_data(G_OBJECT(view), "results_store", results_store);
     g_object_set_data(G_OBJECT(view), "results_sel", results_sel);
@@ -635,6 +656,7 @@ GtkWidget *create_main_window(DB *db) {
     // Load More button for pagination
     GtkWidget *load_more = gtk_button_new_with_label("Load more");
     gtk_widget_set_sensitive(load_more, FALSE);
+    gtk_widget_set_valign(load_more, GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(left_vbox), load_more);
 
      /* store results view on the search entry so the callback can access it without
