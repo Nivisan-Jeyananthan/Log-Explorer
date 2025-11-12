@@ -22,7 +22,9 @@ int main(int argc, char **argv) {
     // Start background indexing (journalctl + /var/log)
     indexer_start(&db);
 
-    GtkApplication *app = gtk_application_new("org.example.logexplorer", G_APPLICATION_FLAGS_NONE);
+     /* G_APPLICATION_FLAGS_NONE is deprecated in newer glib; use the replacement
+         macro to avoid deprecation warnings. */
+     GtkApplication *app = gtk_application_new("org.example.logexplorer", G_APPLICATION_DEFAULT_FLAGS);
     g_signal_connect(app, "activate", G_CALLBACK(app_activate), &db);
 
     int status = g_application_run(G_APPLICATION(app), argc, argv);

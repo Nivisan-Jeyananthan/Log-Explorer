@@ -3,6 +3,10 @@ project('log-explorer', 'c',
   default_options : ['warning_level=2']
 )
 
+# Suppress GTK deprecation warnings for now (UI uses some deprecated GtkTreeView APIs).
+# Long-term: port src/ui.c to GtkListView/GListModel/GtkColumnView.
+add_project_arguments('-Wno-deprecated-declarations', language : 'c')
+
 sqlite_dep = dependency('sqlite3', required: true)
 
 gtk_dep = dependency('gtk4', required: false)
