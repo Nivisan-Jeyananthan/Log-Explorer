@@ -19,13 +19,10 @@
         "config-opts": ["-Dbuildtype=release"],
         "build-commands": [
           "meson setup _flatpak_build .. --prefix=/app -Dbuildtype=release",
-          "meson compile -C _flatpak_build",
-          "mkdir -p $FLATPAK_DEST/app/bin",
-          "cp _flatpak_build/log-explorer $FLATPAK_DEST/app/bin/",
-          "cp _flatpak_build/log-explorer-cli $FLATPAK_DEST/app/bin/",
-          "cp _flatpak_build/insert-sample $FLATPAK_DEST/app/bin/"
-          ,"mkdir -p $FLATPAK_DEST/share/applications",
-          "cp ../flatpak/org.logexplorer.LogExplorer.desktop $FLATPAK_DEST/share/applications/"
+  "meson compile -C _flatpak_build",
+  "meson install -C _flatpak_build --destdir=$FLATPAK_DEST || true",
+          "mkdir -p $FLATPAK_DEST/share/applications",
+          "cp ../flatpak/org.logexplorer.LogExplorer.desktop $FLATPAK_DEST/share/applications/ || true"
         ],
       "sources": [
         { "type": "dir", "path": ".." }

@@ -1,0 +1,40 @@
+{
+  "id" : "org.logexplorer.LogExplorer",
+  "runtime" : "org.gnome.Platform",
+  "runtime-version" : "44",
+  "runtime-commit" : "27a9dc43ac1447fe7efa61946568730a24a2d2147097fba02904ae9c1fcaf8f6",
+  "sdk" : "org.gnome.Sdk",
+  "sdk-commit" : "5ff43b5270907542af1c0998f95c25ad368fde9912b1c9cb878a96106eabeed9",
+  "command" : "log-explorer",
+  "modules" : [
+    {
+      "name" : "log-explorer",
+      "buildsystem" : "meson",
+      "config-opts" : [
+        "-Dbuildtype=release"
+      ],
+      "sources" : [
+        {
+          "path" : "..",
+          "type" : "dir"
+        }
+      ],
+      "build-commands" : [
+        "meson setup _flatpak_build .. --prefix=/app -Dbuildtype=release",
+        "meson compile -C _flatpak_build",
+        "meson install -C _flatpak_build --destdir=$FLATPAK_DEST || true",
+        "mkdir -p $FLATPAK_DEST/share/applications",
+        "cp ../flatpak/org.logexplorer.LogExplorer.desktop $FLATPAK_DEST/share/applications/ || true"
+      ]
+    }
+  ],
+  "finish-args" : [
+    "--share=network",
+    "--share=ipc",
+    "--socket=x11",
+    "--socket=wayland",
+    "--talk-name=org.freedesktop.Notifications",
+    "--device=dri"
+  ],
+  "source-date-epoch" : 1762954600
+}

@@ -18,7 +18,8 @@ if gtk_dep.found()
     'src/db.c',
     'src/indexer.c',
     include_directories : include_directories('src'),
-    dependencies : [gtk_dep, sqlite_dep]
+    dependencies : [gtk_dep, sqlite_dep],
+    install : true
   )
 else
   message('gtk4 not found; skipping GUI build. You can still build the CLI test with "log-explorer-cli"')
@@ -29,12 +30,14 @@ executable('log-explorer-cli',
   'src/db.c',
   'src/indexer.c',
   include_directories : include_directories('src'),
-  dependencies : [sqlite_dep]
+  dependencies : [sqlite_dep],
+  install : true
 )
 
 executable('insert-sample',
   'tools/insert_sample.c',
   'src/db.c',
   include_directories : include_directories('src'),
-  dependencies : [sqlite_dep]
+  dependencies : [sqlite_dep],
+  install : true
 )

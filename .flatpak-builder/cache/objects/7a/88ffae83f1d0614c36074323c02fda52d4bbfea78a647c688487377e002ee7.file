@@ -1,0 +1,5 @@
+[Runtime]
+name=org.logexplorer.LogExplorer.Debug
+
+[ExtensionOf]
+ref=app/org.logexplorer.LogExplorer/x86_64/master
