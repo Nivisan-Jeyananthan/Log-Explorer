@@ -263,6 +263,7 @@ static void on_search_activate(GtkWidget *entry, gpointer user_data) {
         if (rows >= PAGE_SIZE + offset) gtk_widget_set_sensitive(load_more, TRUE);
         else gtk_widget_set_sensitive(load_more, FALSE);
     }
+    g_debug("search: after populate rows=%d offset=%d", g_list_model_get_n_items((GListModel*)store), offset);
 }
 
 // Load next page and append to results
@@ -318,14 +319,26 @@ static void on_load_more_clicked(GtkWidget *button, gpointer user_data) {
         if (rows >= PAGE_SIZE + offset) gtk_widget_set_sensitive(load_more, TRUE);
         else gtk_widget_set_sensitive(load_more, FALSE);
     }
+    g_debug("load_more: appended page offset=%d rows=%d", offset, g_list_model_get_n_items((GListModel*)store));
 }
 
 // Helper: set message text in details text view
 static void set_message_view(GtkWidget *win, const char *message) {
+    /* If the main window contains a full message view (legacy layout),
+     * write into it. Otherwise fall back to a compact preview label placed
+     * under the results list. This supports the new separate details
+     * window while preserving older behaviour if present. */
     GtkWidget *tv = g_object_get_data(G_OBJECT(win), "message_view");
-    if (!tv) return;
-    GtkTextBuffer *buf = gtk_text_view_get_buffer(GTK_TEXT_VIEW(tv));
-    gtk_text_buffer_set_text(buf, message ? message : "", -1);
+    if (tv) {
+        GtkTextBuffer *buf = gtk_text_view_get_buffer(GTK_TEXT_VIEW(tv));
+        gtk_text_buffer_set_text(buf, message ? message : "", -1);
+        return;
+    }
+    GtkWidget *preview = g_object_get_data(G_OBJECT(win), "preview_label");
+    if (!preview) return;
+    /* gtk_label_set_text is safe here; preview label is a simple compact
+     * representation of the message chosen to fit inline with results. */
+    gtk_label_set_text(GTK_LABEL(preview), message ? message : "");
 }
 
 // Helper: populate tag_store for a given log id
@@ -551,19 +564,17 @@ GtkWidget *create_main_window(DB *db) {
     gtk_window_set_default_size(GTK_WINDOW(win), 800, 600);
     gtk_window_set_resizable(GTK_WINDOW(win), TRUE);
 
-    /* Put the main grid inside a scrolled window so that on displays where
-     * the window is smaller than the content the user can scroll to see it
-     * rather than content being clipped. */
-    GtkWidget *grid = gtk_grid_new();
-    GtkWidget *scroller = gtk_scrolled_window_new();
-    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroller), grid);
-    gtk_window_set_child(GTK_WINDOW(win), scroller);
+    /* Use a horizontal GtkPaned so the user can drag-resize the results and
+     * preview areas. The paned is the top-level child of the window. */
+    GtkWidget *paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
+    gtk_window_set_child(GTK_WINDOW(win), paned);
 
     // Left column: search + results
     GtkWidget *left_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
     gtk_widget_set_hexpand(left_vbox, TRUE);
     gtk_widget_set_vexpand(left_vbox, TRUE);
-    gtk_grid_attach(GTK_GRID(grid), left_vbox, 0, 0, 1, 2);
+    /* place the left column (search + results) into the paned start child */
+    gtk_paned_set_start_child(GTK_PANED(paned), left_vbox);
 
     GtkWidget *search = gtk_search_entry_new();
     gtk_box_append(GTK_BOX(left_vbox), search);
@@ -611,56 +622,19 @@ GtkWidget *create_main_window(DB *db) {
 
     // initialize offset
     win_set_offset(win, 0);
-
-    // Right column: details pane
-    GtkWidget *detail_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
-    gtk_widget_set_hexpand(detail_box, TRUE);
-    gtk_widget_set_vexpand(detail_box, TRUE);
-    gtk_grid_attach(GTK_GRID(grid), detail_box, 1, 0, 1, 2);
-
-    /* Make the message/details area scrollable so long log messages don't
-     * overflow the available space. */
-    GtkWidget *message_view = gtk_text_view_new();
-    gtk_text_view_set_editable(GTK_TEXT_VIEW(message_view), FALSE);
-    gtk_widget_set_vexpand(message_view, TRUE);
-    GtkWidget *msg_scroller = gtk_scrolled_window_new();
-    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(msg_scroller), message_view);
-    gtk_widget_set_hexpand(msg_scroller, TRUE);
-    gtk_widget_set_vexpand(msg_scroller, TRUE);
-    gtk_box_append(GTK_BOX(detail_box), msg_scroller);
-
-    // Tag controls
-    GtkWidget *tag_hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-    gtk_box_append(GTK_BOX(detail_box), tag_hbox);
-    GtkWidget *tag_entry = gtk_entry_new();
-    gtk_box_append(GTK_BOX(tag_hbox), tag_entry);
-    GtkWidget *add_btn = gtk_button_new_with_label("Add Tag");
-    gtk_box_append(GTK_BOX(tag_hbox), add_btn);
-    GtkWidget *remove_btn = gtk_button_new_with_label("Remove Tag");
-    gtk_box_append(GTK_BOX(tag_hbox), remove_btn);
-
-    /* Tag list: GtkListView with simple factory */
-    GListStore *tag_store = g_list_store_new(tag_item_get_type());
-    GtkListItemFactory *tag_factory = gtk_signal_list_item_factory_new();
-    g_signal_connect(tag_factory, "setup", G_CALLBACK(tag_factory_setup), NULL);
-    g_signal_connect(tag_factory, "bind", G_CALLBACK(tag_factory_bind), NULL);
-    GtkSingleSelection *tag_sel = GTK_SINGLE_SELECTION(gtk_single_selection_new((GListModel*)tag_store));
-    GtkWidget *tag_view = gtk_list_view_new((GtkSelectionModel*)tag_sel, GTK_LIST_ITEM_FACTORY(tag_factory));
-    gtk_widget_set_vexpand(tag_view, FALSE);
-    /* Wrap tag view in a scroller in case there are many tags */
-    GtkWidget *tag_scroller = gtk_scrolled_window_new();
-    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(tag_scroller), tag_view);
-    gtk_widget_set_size_request(tag_scroller, 150, 100);
-    gtk_box_append(GTK_BOX(detail_box), tag_scroller);
-
-    // Store references for callbacks
-    g_object_set_data(G_OBJECT(win), "message_view", message_view);
-    g_object_set_data(G_OBJECT(win), "tag_store", tag_store);
-    g_object_set_data(G_OBJECT(win), "tag_entry", tag_entry);
-    g_object_set_data(G_OBJECT(win), "add_btn", add_btn);
-    g_object_set_data(G_OBJECT(win), "remove_btn", remove_btn);
-    g_object_set_data(G_OBJECT(win), "tag_view", tag_view);
-    g_object_set_data(G_OBJECT(win), "db", db);
+        // create a right-side box for the preview; the user can resize this
+        // by dragging the paned handle. Full details open in a separate window.
+        GtkWidget *right_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+        gtk_widget_set_hexpand(right_vbox, TRUE);
+        gtk_widget_set_vexpand(right_vbox, TRUE);
+        GtkWidget *preview_label = gtk_label_new(NULL);
+        gtk_label_set_wrap(GTK_LABEL(preview_label), TRUE);
+        gtk_widget_set_hexpand(preview_label, TRUE);
+        gtk_box_append(GTK_BOX(right_vbox), preview_label);
+        gtk_paned_set_end_child(GTK_PANED(paned), right_vbox);
+        g_object_set_data(G_OBJECT(win), "preview_label", preview_label);
+        /* keep DB pointer on the main window for callbacks */
+        g_object_set_data(G_OBJECT(win), "db", db);
 
     g_signal_connect(search, "activate", G_CALLBACK(on_search_activate), db);
 
@@ -672,9 +646,7 @@ GtkWidget *create_main_window(DB *db) {
 
     // Selection changed callback is handled via GtkSingleSelection notify on the model
 
-    // Tag button callbacks
-    g_signal_connect(add_btn, "clicked", G_CALLBACK(on_add_tag_clicked), win);
-    g_signal_connect(remove_btn, "clicked", G_CALLBACK(on_remove_tag_clicked), win);
+    // No tag controls in the main window; tagging is handled in the details window
 
     return win;
 }
