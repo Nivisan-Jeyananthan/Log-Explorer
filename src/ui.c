@@ -566,18 +566,19 @@ GtkWidget *create_main_window(DB *db) {
     gtk_window_set_default_size(GTK_WINDOW(win), 800, 600);
     gtk_window_set_resizable(GTK_WINDOW(win), TRUE);
 
-    /* Put the main content inside a scrolled window; this keeps the UI
-     * simple (single top-level window with the results) while details and
-     * tagging live in their own top-level window opened on double-click. */
-    GtkWidget *scroller = gtk_scrolled_window_new();
-    gtk_window_set_child(GTK_WINDOW(win), scroller);
+    /* The main window contains a vertical box with the search and results.
+     * Do not wrap the GtkListView in an external GtkScrolledWindow —
+     * GtkListView implements its own scrolling and nesting a scrolled
+     * container around it can cause virtualization/layout issues leading
+     * to blank rows when scrolling. */
 
     // Left column: search + results
     GtkWidget *left_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
     gtk_widget_set_hexpand(left_vbox, TRUE);
     gtk_widget_set_vexpand(left_vbox, TRUE);
-    /* put the left column into the scroller */
-    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroller), left_vbox);
+    /* set the left column as the window child directly so the list view's
+     * internal scrolling is used. */
+    gtk_window_set_child(GTK_WINDOW(win), left_vbox);
 
     GtkWidget *search = gtk_search_entry_new();
     gtk_box_append(GTK_BOX(left_vbox), search);
