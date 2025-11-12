@@ -215,28 +215,8 @@ static void window_size_allocate_cb(GtkWidget *win, GtkAllocation *alloc, gpoint
 static void create_details_window(DB *db, LogItem *li);
 
 
-static void results_view_pressed_cb(GtkGesture *gesture, int n_press, double x, double y, gpointer user_data) {
-    (void)gesture; (void)x; (void)y;
-    g_debug("results_view_pressed: n_press=%d", n_press);
-    if (n_press != 2) return;
-    GtkWidget *view = GTK_WIDGET(user_data);
-    if (!view) return;
-    GtkSingleSelection *sel = GTK_SINGLE_SELECTION(g_object_get_data(G_OBJECT(view), "results_sel"));
-    if (!sel) {
-        g_debug("results_view_pressed: no single selection stored on view");
-        return;
-    }
-    GObject *item = gtk_single_selection_get_selected_item(sel);
-    if (!item) {
-        g_debug("results_view_pressed: no item selected on double-click");
-        return;
-    }
-    LogItem *li = LOG_ITEM(item);
-    GtkWidget *win = g_object_get_data(G_OBJECT(view), "main_window");
-    DB *db = g_object_get_data(G_OBJECT(win), "db");
-    g_debug("results_view_pressed: opening details for id=%d", li->id);
-    create_details_window(db, li);
-}
+/* results_view_pressed_cb removed: per-item gestures (list_item_pressed_cb)
+ * are used instead to reliably open the details window on double-click. */
 
 /* Tag list factory callbacks */
 static void tag_factory_setup(GtkListItemFactory *factory, GtkListItem *list_item, gpointer user_data) {
@@ -378,24 +358,9 @@ static void on_load_more_clicked(GtkWidget *button, gpointer user_data) {
     g_debug("load_more: appended page offset=%d rows=%d", offset, g_list_model_get_n_items((GListModel*)store));
 }
 
-// Helper: set message text in details text view
-static void set_message_view(GtkWidget *win, const char *message) {
-    /* If the main window contains a full message view (legacy layout),
-     * write into it. Otherwise fall back to a compact preview label placed
-     * under the results list. This supports the new separate details
-     * window while preserving older behaviour if present. */
-    GtkWidget *tv = g_object_get_data(G_OBJECT(win), "message_view");
-    if (tv) {
-        GtkTextBuffer *buf = gtk_text_view_get_buffer(GTK_TEXT_VIEW(tv));
-        gtk_text_buffer_set_text(buf, message ? message : "", -1);
-        return;
-    }
-    GtkWidget *preview = g_object_get_data(G_OBJECT(win), "preview_label");
-    if (!preview) return;
-    /* gtk_label_set_text is safe here; preview label is a simple compact
-     * representation of the message chosen to fit inline with results. */
-    gtk_label_set_text(GTK_LABEL(preview), message ? message : "");
-}
+/* set_message_view removed — details are shown in a separate window now.
+ * If needed, we can reintroduce a small helper that writes to a preview
+ * label stored on the main window. */
 
 // Helper: populate tag_store for a given log id
 static void populate_tags(GtkWidget *win, DB *db, int log_id) {
@@ -550,22 +515,35 @@ static void create_details_window(DB *db, LogItem *li) {
     GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
     gtk_window_set_child(GTK_WINDOW(dwin), vbox);
 
+    /* Use a non-editable GtkTextView as a 'textarea' and enable word-wrap so
+     * long lines wrap instead of producing horizontal scrollbars. We intentionally
+     * do not put the text view in a scrolled window because the user requested
+     * no scrollbars for the text — wrapping avoids horizontal scrolling and the
+     * window can be resized vertically if needed. */
     GtkWidget *msg_view = gtk_text_view_new();
     gtk_text_view_set_editable(GTK_TEXT_VIEW(msg_view), FALSE);
-    GtkWidget *msg_scroller = gtk_scrolled_window_new();
-    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(msg_scroller), msg_view);
-    gtk_widget_set_hexpand(msg_scroller, TRUE);
-    gtk_widget_set_vexpand(msg_scroller, TRUE);
-    gtk_box_append(GTK_BOX(vbox), msg_scroller);
+    gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(msg_view), GTK_WRAP_WORD);
+    /* Allow the text view to expand horizontally so wrapped text fills width.
+     * We prefer not to force vertical expansion so the window can be kept compact. */
+    gtk_widget_set_hexpand(msg_view, TRUE);
+    gtk_widget_set_vexpand(msg_view, FALSE);
+    gtk_box_append(GTK_BOX(vbox), msg_view);
 
     /* Tag controls */
     GtkWidget *tag_hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    /* Center the tag controls horizontally in the details window. */
+    gtk_widget_set_halign(tag_hbox, GTK_ALIGN_CENTER);
+    gtk_widget_set_hexpand(tag_hbox, FALSE);
     gtk_box_append(GTK_BOX(vbox), tag_hbox);
     GtkWidget *tag_entry = gtk_entry_new();
+    gtk_widget_set_hexpand(tag_entry, FALSE);
+    gtk_widget_set_halign(tag_entry, GTK_ALIGN_CENTER);
     gtk_box_append(GTK_BOX(tag_hbox), tag_entry);
     GtkWidget *add_btn = gtk_button_new_with_label("Add Tag");
+    gtk_widget_set_halign(add_btn, GTK_ALIGN_CENTER);
     gtk_box_append(GTK_BOX(tag_hbox), add_btn);
     GtkWidget *remove_btn = gtk_button_new_with_label("Remove Tag");
+    gtk_widget_set_halign(remove_btn, GTK_ALIGN_CENTER);
     gtk_box_append(GTK_BOX(tag_hbox), remove_btn);
 
     /* Tag list */
@@ -614,6 +592,13 @@ GtkWidget *create_main_window(DB *db) {
     gtk_window_set_default_size(GTK_WINDOW(win), 800, 600);
     gtk_window_set_resizable(GTK_WINDOW(win), TRUE);
 
+    /* Use a conservative, portable minimum height: 300px. This is smaller
+     * than half of typical screen heights (e.g., 1080p/2 = 540) and avoids
+     * depending on monitor APIs that may not be available in older GDK
+     * builds inside runtime sandboxes. We store it on the window to apply
+     * the size request on the main child later. */
+    g_object_set_data(G_OBJECT(win), "min_height_hint", GINT_TO_POINTER(300));
+
     /* The main window contains a vertical box with the search and results.
      * Do not wrap the GtkListView in an external GtkScrolledWindow —
      * GtkListView implements its own scrolling and nesting a scrolled
@@ -627,6 +612,15 @@ GtkWidget *create_main_window(DB *db) {
     /* Ensure the vbox fills available vertical space and can shrink/grow */
     gtk_widget_set_valign(left_vbox, GTK_ALIGN_FILL);
     gtk_widget_set_halign(left_vbox, GTK_ALIGN_FILL);
+    /* If we computed a minimum height hint earlier, apply it as a size
+     * request on the left_vbox so the window can be shrunk down to the
+     * requested minimum. This encourages window managers to allow a
+     * smaller toplevel height than the default. */
+    gpointer mh = g_object_get_data(G_OBJECT(win), "min_height_hint");
+    if (mh) {
+        int min_h = GPOINTER_TO_INT(mh);
+        if (min_h > 0) gtk_widget_set_size_request(left_vbox, -1, min_h);
+    }
     /* set the left column as the window child directly so the list view's
      * internal scrolling is used. */
     gtk_window_set_child(GTK_WINDOW(win), left_vbox);
